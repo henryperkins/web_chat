@@ -13,19 +13,16 @@ load_dotenv()
 # Securely obtain API keys and URLs from the environment
 AZURE_API_URL = os.getenv('AZURE_API_URL')
 API_KEY = os.getenv('API_KEY')
+MAX_TOKENS = os.getenv('MAX_TOKENS')
+REPLY_TOKENS = os.getenv('REPLY_TOKENS')
+MAX_FILE_SIZE_MB = os.getenv('MAX_FILE_SIZE_MB')
+CHUNK_SIZE_TOKENS = os.getenv('CHUNK_SIZE_TOKENS')
+ALLOWED_EXTENSIONS = os.getenv('ALLOWED_EXTENSIONS')
 
 HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {API_KEY}"
 }
-
-# Set model limitations: The LLama model has input and output token limits.
-# Token limitations & chunk size
-MAX_TOKENS = 128000  # model's 128k token limit
-CHUNK_SIZE_TOKENS = 120000  # Allowing some buffer below the limit for replies
-REPLY_TOKENS = 500  # Maximum tokens for a model reply
-ALLOWED_EXTENSIONS = {'txt', 'md', 'json'}
-MAX_FILE_SIZE_MB = 5 # Limited the file uploads to 5 MB
 
 # Load Tiktoken-based tokenizer for LLama 3.1
 # You need to reference the tokenizer specific to your model or a compatible tokenizer.

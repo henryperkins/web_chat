@@ -9,9 +9,6 @@ from redis import Redis, ConnectionError
 import requests
 from dotenv import load_dotenv
 
-# Define the maximum file size in MB
-MAX_FILE_SIZE_MB = 10  # Adjust this value as needed
-
 # Import the consolidated utility functions
 from utils import count_tokens, manage_token_limits, allowed_file, file_size_under_limit, handle_file_chunks, analyze_chunk_with_llama
 
@@ -23,6 +20,8 @@ load_dotenv()
 # Securely obtain API keys and URLs from the environment
 AZURE_API_URL = os.getenv('AZURE_API_URL')
 API_KEY = os.getenv('API_KEY')
+MAX_TOKENS = os.getenv('MAX_TOKENS')
+REPLY_TOKENS = os.getenv('REPLY_TOKENS')
 
 HEADERS = {
     "Content-Type": "application/json",
@@ -55,9 +54,6 @@ Session(app)
 
 # Initialize SocketIO for real-time WebSocket communication
 socketio = SocketIO(app, cors_allowed_origins="*")
-
-# Define the maximum number of tokens for the model's reply
-REPLY_TOKENS = 150  # Adjust this value as needed
 
 @app.route('/')
 def index():
@@ -193,7 +189,6 @@ def handle_message(data):
     # Start communicating with the Llama model using streaming mode so we can stream tokens back incrementally
     try:
         # Make a POST request to the Azure API (Meta Llama 3.1 405B model) with streaming enabled
-        AZURE_API_URL = 'https://your-azure-api-url'  # Define your Azure API URL here
         HEADERS = {'Content-Type': 'application/json', 'Authorization': 'Bearer YOUR_API_KEY'}
         response = requests.post(AZURE_API_URL, headers=HEADERS, json=payload, stream=True)
         response.raise_for_status()  # Raise any error responses (like 4xx or 5xx)
