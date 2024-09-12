@@ -20,12 +20,12 @@ load_dotenv()
 # Securely obtain API keys and URLs from the environment
 AZURE_API_URL = os.getenv('AZURE_API_URL')
 API_KEY = os.getenv('API_KEY')
-MAX_TOKENS = os.getenv('MAX_TOKENS')
-REPLY_TOKENS = os.getenv('REPLY_TOKENS')
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 32000))
+REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 1000))
 
 HEADERS = {
     "Content-Type": "application/json",
-    "Authorization": f"Bearer {API_KEY}"
+    "api-key": API_KEY
 }
 
 # Updated Redis configuration with error handling
@@ -172,26 +172,30 @@ def handle_message(data):
     payload = {
         'messages': conversation_history,
         'max_tokens': REPLY_TOKENS,
-        'temperature': 0.7
+        'temperature': 0.7,
+        'top_p': 0.95,
+        'frequency_penalty': 0,
+        'presence_penalty': 0,
+        'stop': None
     }
 
     try:
-        response = requests.post(AZURE_API_URL, headers=HEADERS, json=payload, stream=True)
+        response = requests.post(AZURE_API_URL, headers=HEADERS, json=payload)
         response.raise_for_status()
+        response_data = response.json()
 
-        assistant_response = ""
+        if 'choices' in response_data and len(response_data['choices']) > 0:
+            assistant_response = response_data['choices'][0]['message']['content']
+            conversation_history.append({"role": "assistant", "content": assistant_response})
+            session['conversation'] = conversation_history
 
-        for token_chunk in response.iter_lines():
-            if token_chunk:
-                token_chunk = token_chunk.decode('utf-8')
-                assistant_response += token_chunk
-                emit('response_chunk', {'chunk': token_chunk})
+            # Emit the full response
+            emit('response_chunk', {'chunk': assistant_response})
 
-        conversation_history.append({"role": "assistant", "content": assistant_response})
-        session['conversation'] = conversation_history
-
-        _, final_token_usage = manage_token_limits(conversation_history)
-        emit('token_usage', {'total_tokens_used': final_token_usage})
+            _, final_token_usage = manage_token_limits(conversation_history)
+            emit('token_usage', {'total_tokens_used': final_token_usage})
+        else:
+            emit('error', {'message': "No valid response from the API"})
 
     except requests.RequestException as request_error:
         emit('error', {'message': f"Failed to communicate with Llama API: {str(request_error)}"})
@@ -212,7 +216,7 @@ def upload_file():
         return jsonify({"message": "Unsupported file type."}), 400
 
     if not file_size_under_limit(file):
-        return jsonify({"message": "File too large. Max size is 5MB"}), 400
+        return jsonify({"message": "File too large. Max size is 10MB"}), 400
 
     try:
         file_content = file.read().decode('utf-8')
