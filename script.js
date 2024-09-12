@@ -80,6 +80,7 @@ function updateTokenUsage(tokens) {
         tokenUsageElement.textContent = `Token Usage: ${tokens}`;
     }
 }
+
 /**
  * Resets the entire conversation by clearing out both the frontend and backend conversation history.
  * This will remove all messages from the chat and reset state.
@@ -166,6 +167,7 @@ function renderConversations(conversations) {
         });
     }
 }
+
 /**
  * Loads a previously saved conversation from the backend and repopulates the chat history with the messages.
  *
@@ -247,15 +249,13 @@ async function addFewShotExample() {
  */
 async function uploadFile() {
     const fileInput = document.getElementById('file-input');
-    const file = fileInput.files[0];  // Extract file from input
+    const file = fileInput.files[0];  // Only one file input needed now
 
-    // Ensure a file is selected
     if (!file) {
         showAlert('Please select a file before uploading.', 'error');
         return;
     }
 
-    // Validate file type (allow 'txt', 'md', 'json')
     const allowedExtensions = ['txt', 'json', 'md'];
     const fileExtension = file.name.split('.').pop().toLowerCase();
 
@@ -264,29 +264,24 @@ async function uploadFile() {
         return;
     }
 
-    // Validate file size (<5MB)
-    const fileSizeInMB = (file.size / (1024 * 1024)).toFixed(2);  // Convert to MB
+    const fileSizeInMB = (file.size / (1024 * 1024)).toFixed(2);
     if (fileSizeInMB > 5) {
         showAlert('File too large. Maximum allowed size is 5MB.', 'error');
         return;
     }
 
-    // Prepare and send the request for file upload (if passed validation)
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-        const response = await fetch('/upload_file', {
-            method: 'POST',
-            body: formData,
-        });
-
+        const response = await fetch('/upload_file', { method: 'POST', body: formData });
         const data = await response.json();
+
         if (!response.ok) {
             showAlert('Error: ' + data.message, 'error');
         } else {
             showAlert(data.message, 'success');
-            appendMessage('assistant', data.analysis);  // Display the returned analysis
+            appendMessage('assistant', data.analysis);
         }
     } catch (error) {
         console.error("File upload failed:", error);
@@ -300,19 +295,22 @@ async function uploadFile() {
  * @param {string} message - The alert message.
  * @param {string} type - The type of alert ('success', 'error', etc.) for styling.
  */
-function showAlert(message, type = 'info', duration = 3000) {
-    const alertBox = document.createElement('div');
-    alertBox.classList.add('alert', `alert-${type}`);
-    alertBox.textContent = message;
+const notyf = new Notyf();
 
-    document.body.appendChild(alertBox);
+function showAlert(message, type = 'info') {
+    const options = {
+        duration: 5000, // change auto-dismiss time
+        ripple: true,
+        position: { x: 'right', y: 'top' },
+    };
 
-    // Different timeout based on alert type
-    if (type === 'error') {
-        duration = 5000;
+    if (type === 'success') {
+        notyf.success({ ...options, message });
+    } else if (type === 'error') {
+        notyf.error({ ...options, message });
+    } else {
+        notyf.open({ ...options, type: 'info', message });
     }
-
-    setTimeout(() => alertBox.remove(), duration);
 }
 
 // Use showAlert() across all functions that need it

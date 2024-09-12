@@ -5,12 +5,15 @@ from flask import session, jsonify, request
 from werkzeug.utils import secure_filename
 import requests
 import tiktoken
+from dotenv import load_dotenv
 
-# LLama 3.1 405b Model Configuration
-AZURE_API_URL = "https://Meta-Llama-3-1-405B-Instruct-egb.eastus.models.ai.azure.com/v1/chat/completions"
-API_KEY = "MxFB1fUJ8HAKfX9mWEvVc9IxbtKOcN4Q"
+# Load environment variables from a .env file
+load_dotenv()
 
-# Set headers for API requests
+# Securely obtain API keys and URLs from the environment
+AZURE_API_URL = os.getenv('AZURE_API_URL')
+API_KEY = os.getenv('API_KEY')
+
 HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {API_KEY}"
@@ -42,51 +45,31 @@ def count_tokens(text):
 
 def manage_token_limits(conversation_history, new_message=None):
     """
-    Manages token limits by trimming older parts of the conversation and calculates total token usage.
-
-    Args:
-        conversation_history (list): List of conversation messages.
-        new_message (str): The incoming message to append to the conversation.
-
-    Returns:
-        tuple: Updated conversation history limited by tokens, and total token usage.
+    Keeps track of tokens ensuring we stay within the limit by removing oldest user messages.
+    Also optimizes balance between context history and new messages.
     """
-    total_tokens = 0
-    trimmed_conversation = []
+    total_tokens = sum(count_tokens(turn['content']) for turn in conversation_history)
 
-    # Traverse existing conversation history
-    for turn in conversation_history:
-        turn_tokens = count_tokens(turn['content'])
-        total_tokens += turn_tokens
-        trimmed_conversation.append(turn)
+    while total_tokens >= MAX_TOKENS - REPLY_TOKENS:
+        turn = conversation_history.pop(0)
+        total_tokens -= count_tokens(turn['content'])
 
-        # Break once the token count exceeds the allowed model limit minus the reply buffer
-        if total_tokens >= MAX_TOKENS - REPLY_TOKENS:
-            # Remove older messages
-            trimmed_conversation.pop(0)
-
-    # Append new user message if available
     if new_message:
         new_message_tokens = count_tokens(new_message)
-        trimmed_conversation.append({"role": "user", "content": new_message})
+        conversation_history.append({"role": "user", "content": new_message})
         total_tokens += new_message_tokens
 
-    return trimmed_conversation, total_tokens
+    return conversation_history, total_tokens
 
-def allowed_file(filename):
-    """
-    Check if the uploaded file has an allowed extension.
-    """
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+def allowed_file(filename, allowed_extensions=('txt', 'md', 'json')):
+    return filename.rsplit('.', 1)[1].lower() in allowed_extensions if '.' in filename else False
 
-def file_size_under_limit(file):
-    """
-    Check if the file size is under a defined maximum.
-    """
+def file_size_under_limit(file, max_size_mb=5):
     file.seek(0, os.SEEK_END)
-    file_size_mb = file.tell() / (1024 * 1024)  # Convert size to megabytes
-    file.seek(0)  # Reset file pointer
-    return file_size_mb <= MAX_FILE_SIZE_MB
+    size_bytes = file.tell()
+    file_size_mb = size_bytes / (1024 * 1024)
+    file.seek(0)
+    return file_size_mb <= max_size_mb
 
 def handle_file_chunks(file_content):
     """
@@ -131,38 +114,28 @@ def handle_file_chunks(file_content):
 
     return content_chunks, full_analysis_result
 
-def analyze_chunk_with_llama(chunk):
+def analyze_chunk_with_llama(chunk, retries=3):
     """
-    Sends a chunk of text to Llama 3.1 for analysis and returns model's response.
-
-    Args:
-        chunk (str): The content chunk to be analyzed.
-
-    Returns:
-        str: The model's response for the given chunk.
+    Analyzes a text chunk using the Llama API, with added error handling and retries.
     """
     conversation_history = session.get('conversation', [])
-
-    # Append the chunk as a user message
     conversation_history.append({"role": "user", "content": chunk})
 
-    # Prepare request payload for Llama API
     payload = {
         "messages": conversation_history,
-        "max_tokens": 500,  # Limit Llama's response token length
-        "temperature": 0.7  # Controls how creative or deterministic the replies are
+        "max_tokens": 500,
+        "temperature": 0.7
     }
 
-    try:
-        # Send the chunk to Llama model via Azure API
-        response = requests.post(AZURE_API_URL, headers=HEADERS, json=payload)
-        response.raise_for_status()
-
-        # Parse and return the model's response (assuming JSON response structure)
-        llama_response = response.json()
-        return llama_response['choices'][0]['message']['content']
-
-    except requests.exceptions.RequestException as e:
-        return f"API request failed: {str(e)}"
-    except KeyError:
-        return "Received invalid response from Llama API."
+    attempt = 0
+    while attempt < retries:
+        try:
+            response = requests.post(AZURE_API_URL, headers=HEADERS, json=payload)
+            response.raise_for_status()
+            llama_response = response.json()
+            return llama_response['choices'][0]['message']['content']
+        except (requests.exceptions.RequestException, KeyError) as e:
+            print(f"API error: {e}")
+            attempt += 1
+            if attempt >= retries:
+                return "Unable to process your request at this time. Please try again later."

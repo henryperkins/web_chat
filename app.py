@@ -5,8 +5,9 @@ from werkzeug.utils import secure_filename
 import os
 import json
 from datetime import datetime, timedelta
-from redis import Redis
+from redis import Redis, ConnectionError
 import requests
+from dotenv import load_dotenv
 
 # Define the maximum file size in MB
 MAX_FILE_SIZE_MB = 10  # Adjust this value as needed
@@ -16,14 +17,35 @@ from utils import count_tokens, manage_token_limits, allowed_file, file_size_und
 
 app = Flask(__name__, static_url_path='', static_folder='static', template_folder='templates')
 
-# Setup Redis server for session management
-app.config['SESSION_TYPE'] = 'redis'           # Store sessions in Redis
-app.config['SESSION_REDIS'] = Redis(host='localhost', port=6379)  # Redis server address
-app.config['SESSION_PERMANENT'] = True         # Make sessions non-permanent by default
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Sessions last for 30 minutes
-app.config['SESSION_USE_SIGNER'] = True         # Sign the session ID for added security
-app.config['SESSION_KEY_PREFIX'] = 'sess:'      # Prefix for session keys in Redis
-app.config['SESSION_COOKIE_NAME'] = 'my_app_session'  # Name of the session cookie
+# Load environment variables from a .env file
+load_dotenv()
+
+# Securely obtain API keys and URLs from the environment
+AZURE_API_URL = os.getenv('AZURE_API_URL')
+API_KEY = os.getenv('API_KEY')
+
+HEADERS = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {API_KEY}"
+}
+
+# Updated Redis configuration with error handling
+try:
+    # Setup Redis server for session management
+    redis_server = Redis(host='localhost', port=6379)
+    # Test the Redis connection
+    redis_server.ping()
+    app.config['SESSION_TYPE'] = 'redis'
+    app.config['SESSION_REDIS'] = redis_server
+except ConnectionError as e:
+    # Gracefully handle Redis connection failure
+    print(f"Warning: Redis server is not reachable. Session management will fall back to filesystem.")
+    app.config['SESSION_TYPE'] = 'filesystem'  # Fallback to filesystem session storage or another solution
+    app.config['SESSION_PERMANENT'] = True         # Make sessions non-permanent by default
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Sessions last for 30 minutes
+    app.config['SESSION_USE_SIGNER'] = True         # Sign the session ID for added security
+    app.config['SESSION_KEY_PREFIX'] = 'sess:'      # Prefix for session keys in Redis
+    app.config['SESSION_COOKIE_NAME'] = 'my_app_session'  # Name of the session cookie
 
 # Set a secret key for securely signing the session cookies
 app.secret_key = 'your_secret_key'
@@ -36,32 +58,6 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Define the maximum number of tokens for the model's reply
 REPLY_TOKENS = 150  # Adjust this value as needed
-
-@app.route('/set_session_var')
-def set_session_var():
-    """
-    Sets a session variable.
-    This function stores a key-value pair in the Flask session.
-    In this example: 'key' will be set to 'value'.
-    """
-    # Store a value in the session
-    session['key'] = 'value'
-
-    # Return a response indicating the session variable has been set
-    return 'Session variable "key" has been set to "value".'
-
-@app.route('/get_session_var')
-def get_session_var():
-    """
-    Retrieves a session variable.
-    This function fetches the value of 'key' from the Flask session.
-    If 'key' is not found, it returns 'not set'.
-    """
-    # Retrieve the session variable if it exists, otherwise return 'not set'
-    value = session.get('key', 'not set')
-
-    # Return a message indicating the session value
-    return f'The value of "key" in your session is: {value}'
 
 @app.route('/')
 def index():
@@ -241,42 +237,22 @@ def handle_message(data):
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
-    """
-    Handles file uploads, processes chunks via Llama model, and streams them back.
-    """
-
-    # Ensure file is provided in the request
-    if 'file' not in request.files:
-        return jsonify({"message": "No file part in the request."}), 400
+    if 'file' not in request.files or request.files['file'].filename == '':
+        return jsonify({"message": "No file selected."}), 400
 
     file = request.files['file']
 
-    # Ensure a file is selected
-    if file.filename == '':
-        return jsonify({"message": "No file selected."}), 400
-
-    # Validate file type
     if not allowed_file(file.filename):
         return jsonify({"message": "Unsupported file type."}), 400
 
-    # Validate file size
     if not file_size_under_limit(file):
-        return jsonify({"message": f"File too large. Max size is {MAX_FILE_SIZE_MB} MB"}), 400
-
-    # Secure the filename
-    filename = secure_filename(file.filename)
+        return jsonify({"message": "File too large. Max size is 5MB"}), 400
 
     try:
-        # Read file content
         file_content = file.read().decode('utf-8')
+        _, full_analysis_result = handle_file_chunks(file_content)
 
-        # Break into manageable chunks by token count
-        content_chunks, full_analysis_result = handle_file_chunks(file_content)
-
-        return jsonify({
-            "message": "File was uploaded and analyzed successfully.",
-            "analysis": full_analysis_result
-        }), 200
+        return jsonify({ "message": "File was uploaded and analyzed successfully.", "analysis": full_analysis_result }), 200
 
     except Exception as e:
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
