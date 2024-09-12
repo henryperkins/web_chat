@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Chatbot using Llama Model">
+	 <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Llama Token Chatbot</title>
+
+    <!-- Link to the custom CSS file -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" type="text/css" href="styles.css">
+
+    <!-- Socket.IO library for WebSocket functionality -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- Link to the frontend JavaScript file, deferred to ensure DOM loads first -->
+    <script defer src="script.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <header>
+            <h1>Llama Token Chatbot</h1>
+            <button onclick="resetConversation()">Reset Conversation</button>
+            <button onclick="saveConversation()">Save Conversation</button>
+            <button onclick="listConversations()">List Saved Conversations</button>
+        </header>
+
+        <!-- Chat History Display Section -->
+        <div id="chat-history" class="chat-history"></div>
+
+        <!-- User Input and Message Sending Section -->
+<div class="message-input">
+    <form id="message-form" onsubmit="event.preventDefault(); sendMessage();">
+        <input type="text" id="user-message" placeholder="Type your message here..." autofocus>
+
+        <!-- Allow form submission by pressing Enter -->
+        <script>
+            document.getElementById('user-message').addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+        </script>
+        <button type="submit">Send</button>
+    </form>
+</div>
+
+<div id="token-usage" class="token-usage">
+    Token Usage: --  <!-- Change default to a clearer placeholder -->
+</div>
+
+<script>
+    function updateTokenUsage(tokens) {
+        const tokenUsageElement = document.getElementById('token-usage');
+        tokenUsageElement.style.display = 'block';  // Show it once there's data
+        tokenUsageElement.textContent = `Token Usage: ${tokens}`;
+    }
+</script>
+
+<!-- Few-shot Example Section -->
+<section class="few-shot-examples">
+    <h3>Add Few-Shot Example</h3>
+    <div>
+        <label for="user-prompt">User Prompt:</label>
+        <input type="text" id="user-prompt" placeholder="Enter User Prompt">
+    </div>
+    <div>
+        <label for="assistant-response">Assistant Response:</label>
+        <input type="text" id="assistant-response" placeholder="Enter Assistant Response">
+    </div>
+    <button onclick="addFewShotExample()">Add Example</button>
+</section>
+
+<!-- File Upload Section -->
+<section class="file-upload">
+    <h3>Upload File for Analysis</h3>
+    <input type="file" id="file-input-1" title="Choose a file to upload">
+</section>
+        <!-- Few-shot Example Section -->
+        <section class="few-shot-examples">
+            <h3>Add Few-Shot Example</h3>
+            <div>
+                <label for="user-prompt">User Prompt:</label>
+                <input type="text" id="user-prompt" placeholder="Enter User Prompt">
+            </div>
+            <div>
+                <label for="assistant-response">Assistant Response:</label>
+                <input type="text" id="assistant-response" placeholder="Enter Assistant Response">
+            </div>
+            <button onclick="addFewShotExample()">Add Example</button>
+        </section>
+
+        <!-- File Upload Section -->
+        <section class="file-upload">
+            <h3>Upload File for Analysis</h3>
+            <input type="file" id="file-input-2" title="Choose a file to upload" placeholder="Choose file">
+            <button onclick="uploadFile()">Upload File</button>
+        </section>
+
+        <!-- Saved Conversations Section -->
+        <section id="saved-conversations">
+            <h3>Saved Conversations</h3>
+            <ul id="conversation-list"></ul>
+        </section>
+
+        <!-- Notifications or Alerts Section (for dynamic messages) -->
+        <div id="alerts"></div>
+    </div>
+</body>
+</html>

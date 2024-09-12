@@ -1,0 +1,222 @@
+/* General Styling */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f9;
+    color: #333;
+}
+
+.container {
+    width: 100%;
+    max-width: 800px;
+    margin: 20px auto;  /* Center the container */
+    padding: 20px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Header Styling */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+header button {
+    background-color: #007BFF;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 14px;
+    margin-left: 10px;
+}
+
+header button:hover {
+    background-color: #0056b3;
+}
+
+h1 {
+    margin: 0;
+    font-size: 24px;
+    color: #333;
+}
+
+/* Chat History Section */
+.chat-history {
+    max-height: 400px;
+    overflow-y: auto;
+    background-color: #f9f9f9;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.user-message, .assistant-message {
+    margin-bottom: 15px;
+    padding: 10px;
+    border-radius: 5px;
+ display: inline-block;
+    max-width: 70%;
+    word-wrap: break-word; /* Prevent long strings from overflowing */
+}
+
+.user-message {
+    text-align: right;
+    background-color: #d1ecf1; /* Lighter blue */
+    color: #0c5460; /* Dark blue */
+    margin-left: auto;
+}
+
+.assistant-message {
+    text-align: left;
+    background-color: #f8d7da; /* Lighter red */
+    color: #721c24; /* Darker red */
+    margin-right: auto;
+}
+
+/* Message Input Section */
+.message-input {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.message-input input[type="text"] {
+    width:(100% - 120px);  /* Adjust width to make room for the send button */
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.message-input button {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.message-input button:hover {
+    background-color: #218838;
+}
+
+/* Token Usage Display */
+.token-usage {
+    font-weight: bold;
+    color: #555;
+    margin-top: 10px;
+    text-align: center;
+}
+
+/* Few-shot Example Section */
+.few-shot-examples {
+    margin: 20px 0;
+}
+
+.few-shot-examples h3 {
+    margin-bottom: 10px;
+}
+
+.few-shot-examples input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.few-shot-examples button {
+    background-color: #ffc107;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.few-shot-examples button:hover {
+    background-color: #e0a800;
+}
+
+/* File Upload Section */
+.file-upload {
+    margin: 20px 0;
+}
+
+.file-upload input {
+    margin-right: 10px;
+}
+
+.file-upload button {
+    background-color: #17a2b8;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.file-upload button:hover {
+    background-color: #138496;
+}
+
+/* Saved Conversations Section */
+#saved-conversations {
+    margin-top: 20px;
+}
+
+#conversation-list {
+    list-style-type: none;
+    padding: 0;
+}
+
+#conversation-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+/* Alert Message Styling */
+.alert {
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 5px;
+    font-size: 14px;
+    text-align: center;
+}
+
+/* Specific alert variants */
+.alert-success { background-color: #d4edda; color: #155724; }
+.alert-error { background-color: #f8d7da; color: #721c24; }
+
+.alert-info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+.button-primary {
+    background-color: #007BFF;
+    color: white;
+}
+
+.button-primary:hover {
+    background-color: #0056b3;
+}
+
+.button-secondary {
+    background-color: #28a745;
+    color: white;
+}
+
+.button-secondary:hover {
+    background-color: #218838;
+}
