@@ -13,11 +13,18 @@ load_dotenv()
 # Securely obtain API keys and URLs from the environment
 AZURE_API_URL = os.getenv('AZURE_API_URL')
 API_KEY = os.getenv('API_KEY')
-MAX_TOKENS = os.getenv('MAX_TOKENS')
-REPLY_TOKENS = os.getenv('REPLY_TOKENS')
-MAX_FILE_SIZE_MB = os.getenv('MAX_FILE_SIZE_MB')
-CHUNK_SIZE_TOKENS = os.getenv('CHUNK_SIZE_TOKENS')
-ALLOWED_EXTENSIONS = os.getenv('ALLOWED_EXTENSIONS')
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 128000))  # Convert to int, default to 128000
+REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 800))  # Convert to int, default to 800
+
+# Parse MAX_FILE_SIZE_MB, handling 'm' suffix if present
+max_file_size = os.getenv('MAX_FILE_SIZE_MB', '5.0')
+if isinstance(max_file_size, str) and max_file_size.lower().endswith('m'):
+    MAX_FILE_SIZE_MB = float(max_file_size[:-1])
+else:
+    MAX_FILE_SIZE_MB = float(max_file_size)
+
+CHUNK_SIZE_TOKENS = int(os.getenv('CHUNK_SIZE_TOKENS', 1000))  # Convert to int, default to 1000
+ALLOWED_EXTENSIONS = set(os.getenv('ALLOWED_EXTENSIONS', 'txt,md,json').split(','))
 
 HEADERS = {
     "Content-Type": "application/json",
@@ -58,15 +65,15 @@ def manage_token_limits(conversation_history, new_message=None):
 
     return conversation_history, total_tokens
 
-def allowed_file(filename, allowed_extensions=('txt', 'md', 'json')):
-    return filename.rsplit('.', 1)[1].lower() in allowed_extensions if '.' in filename else False
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def file_size_under_limit(file, max_size_mb=5):
+def file_size_under_limit(file):
     file.seek(0, os.SEEK_END)
     size_bytes = file.tell()
     file_size_mb = size_bytes / (1024 * 1024)
     file.seek(0)
-    return file_size_mb <= max_size_mb
+    return file_size_mb <= MAX_FILE_SIZE_MB
 
 def handle_file_chunks(file_content):
     """
