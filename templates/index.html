@@ -8,9 +8,9 @@
     <title>Llama Token Chatbot</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.css">
     <script src="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.js"></script>
-    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-    <script defer src="../script.js"></script>
+    <script defer src="{{ url_for('static', filename='script.js') }}"></script>
 </head>
 <body>
     <div class="container">
