@@ -6,3 +6,5 @@ chatproj_modules/*
 __pycache__/app.cpython-311.pyc
 __pycache__/utils.cpython-311.pyc
 .chatapp
+__pycache__
+venv
