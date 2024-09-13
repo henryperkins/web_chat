@@ -8,11 +8,15 @@ from datetime import datetime, timedelta
 from redis import Redis, ConnectionError
 import requests
 from dotenv import load_dotenv
+import logging
 
 # Import the consolidated utility functions
 from utils import count_tokens, manage_token_limits, allowed_file, file_size_under_limit, handle_file_chunks, analyze_chunk_with_llama
 
 app = Flask(__name__, static_url_path='', static_folder='static', template_folder='templates')
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -25,8 +29,13 @@ REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 1000))
 
 HEADERS = {
     "Content-Type": "application/json",
-    "api-key": API_KEY
+    "api-key": API_KEY,
+    "Authorization": f"Bearer {API_KEY}"  # Add Authorization header
 }
+
+# Ensure the saved_conversations directory exists
+SAVED_CONVERSATIONS_DIR = './saved_conversations'
+os.makedirs(SAVED_CONVERSATIONS_DIR, exist_ok=True)
 
 # Updated Redis configuration with error handling
 try:
@@ -38,7 +47,7 @@ try:
     app.config['SESSION_REDIS'] = redis_server
 except ConnectionError as e:
     # Gracefully handle Redis connection failure
-    print(f"Warning: Redis server is not reachable. Session management will fall back to filesystem.")
+    logging.warning(f"Redis server is not reachable. Session management will fall back to filesystem. Error: {str(e)}")
     app.config['SESSION_TYPE'] = 'filesystem'  # Fallback to filesystem session storage or another solution
     app.config['SESSION_PERMANENT'] = True         # Make sessions non-permanent by default
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Sessions last for 30 minutes
@@ -53,7 +62,7 @@ app.secret_key = 'your_secret_key'
 Session(app)
 
 # Initialize SocketIO for real-time WebSocket communication
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 @app.route('/')
 def index():
@@ -77,17 +86,23 @@ def reset_conversation():
         return jsonify({"message": "Conversation has been reset successfully!"}), 200
 
     except Exception as e:
+        logging.error(f"Error resetting conversation: {str(e)}")
         return jsonify({"message": "An error occurred resetting the conversation", "error": str(e)}), 500
 
 @app.route('/list_conversations', methods=['GET'])
 def list_conversations():
     try:
-        # Better practice: save conversation histories in a sub-directory
-        files = os.listdir('./saved_conversations')
+        if not os.path.exists(SAVED_CONVERSATIONS_DIR):
+            logging.warning(f"Directory {SAVED_CONVERSATIONS_DIR} does not exist.")
+            return jsonify({"conversations": []}), 200
+
+        files = os.listdir(SAVED_CONVERSATIONS_DIR)
         conversation_files = [file for file in files if file.endswith('.json')]
+        logging.info(f"Found {len(conversation_files)} conversation files.")
         return jsonify({"conversations": conversation_files}), 200
 
     except Exception as e:
+        logging.error(f"Error listing conversations: {str(e)}")
         return jsonify({"message": f"Failed to list conversations: {str(e)}"}), 500
 
 @app.route('/save_history', methods=['POST'])
@@ -100,9 +115,14 @@ def save_history():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     file_name = f'{timestamp}_conversation_history.json'
 
-    with open(os.path.join('./saved_conversations', file_name), 'w') as outfile:
-        json.dump(conversation, outfile)
-    return jsonify({"message": "Conversation history saved successfully."}), 200
+    try:
+        with open(os.path.join(SAVED_CONVERSATIONS_DIR, file_name), 'w') as outfile:
+            json.dump(conversation, outfile)
+        logging.info(f"Conversation saved successfully: {file_name}")
+        return jsonify({"message": "Conversation history saved successfully."}), 200
+    except Exception as e:
+        logging.error(f"Error saving conversation: {str(e)}")
+        return jsonify({"message": f"Failed to save conversation: {str(e)}"}), 500
 
 @app.route('/load_conversation/<filename>', methods=['GET'])
 def load_conversation(filename):
@@ -113,14 +133,20 @@ def load_conversation(filename):
     Returns the conversation (in JSON) and repopulates it back into the session storage for continuity.
     """
     try:
-        with open(filename, 'r') as file:
+        file_path = os.path.join(SAVED_CONVERSATIONS_DIR, filename)
+        if not os.path.exists(file_path):
+            return jsonify({"message": f"Conversation file {filename} not found"}), 404
+
+        with open(file_path, 'r') as file:
             conversation_history = json.load(file)
 
         # Repopulate session with loaded conversation
         session['conversation'] = conversation_history
 
+        logging.info(f"Conversation loaded successfully: {filename}")
         return jsonify({"conversation": conversation_history}), 200
     except Exception as e:
+        logging.error(f"Error loading conversation: {str(e)}")
         return jsonify({"message": "Error loading conversation", "error": str(e)}), 500
 
 @app.route('/add_few_shot_example', methods=['POST'])
@@ -150,6 +176,7 @@ def add_few_shot_example():
         {"role": "assistant", "content": assistant_response}
     ])
 
+    logging.info("Few-shot example added successfully")
     return jsonify({"message": "Few-shot example added successfully!"}), 200
 
 @socketio.on('send_message')
@@ -198,12 +225,12 @@ def handle_message(data):
             emit('error', {'message': "No valid response from the API"})
 
     except requests.RequestException as request_error:
+        logging.error(f"Failed to communicate with Llama API: {str(request_error)}")
         emit('error', {'message': f"Failed to communicate with Llama API: {str(request_error)}"})
-        print(f"Error: {str(request_error)}")
 
     except Exception as general_error:
+        logging.error(f"An unexpected error occurred: {str(general_error)}")
         emit('error', {'message': f"An unexpected error occurred: {str(general_error)}"})
-        print(f"General Error: {str(general_error)}")
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
@@ -222,11 +249,13 @@ def upload_file():
         file_content = file.read().decode('utf-8')
         _, full_analysis_result = handle_file_chunks(file_content)
 
+        logging.info(f"File uploaded and analyzed successfully: {file.filename}")
         return jsonify({ "message": "File was uploaded and analyzed successfully.", "analysis": full_analysis_result }), 200
 
     except Exception as e:
+        logging.error(f"Error uploading or analyzing file: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
     # Launch the Flask app with SocketIO enabled
-    socketio.run(app, port=5000)  # Adjust port as necessary
+    socketio.run(app, debug=True, port=5000)  # Adjust port as necessary
