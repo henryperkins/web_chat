@@ -84,7 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         console.error('Element search-form not found.');
     }
-    
 
     // Buttons Event Listeners
     const newConversationButton = document.getElementById('new-conversation-button');
@@ -132,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function setCurrentConversation(conversationId) {
         currentConversationId = conversationId;
         sessionStorage.setItem('conversation_id', conversationId);
-    }    
+    }
 
     async function startNewConversation() {
         try {
@@ -140,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setCurrentConversation(data.conversation_id);
             chatHistory.innerHTML = '';
             notyf.success('Started a new conversation.');
-            updateTokenUsage({ total_tokens_used: 0 }); // Add this line
+            updateTokenUsage({ total_tokens_used: 0 });
             listConversations();
         } catch (error) {
             notyf.error(error.message);
@@ -150,17 +149,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function sendMessage() {
         const message = userMessageInput.value.trim();
         if (!message) return;
-    
+
         appendMessage('user', message);
-    
-        socket.emit('send_message', { message: message, conversation_id: currentConversationId }, (error) => {
+
+        socket.emit('send_message', { message: message }, (error) => {
             if (error) {
                 notyf.error('Failed to send message.');
             }
         });
-    
+
         userMessageInput.value = '';
-    }    
+    }
 
     function appendMessage(role, content) {
         if (!chatHistory) {
@@ -206,6 +205,11 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             notyf.error(error.message);
         }
+    }
+
+    async function saveConversation() {
+        // Since conversations are automatically saved in the database, this function could notify the user
+        notyf.success('Conversation is automatically saved.');
     }
 
     async function listConversations() {
@@ -254,12 +258,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
             notyf.success('Conversation loaded.');
-            updateTokenUsage({ total_tokens_used: data.total_tokens_used || 0 });
+            // If the server provides total_tokens_used, update it; otherwise, you may need to recalculate or omit this
+            // updateTokenUsage({ total_tokens_used: data.total_tokens_used || 0 });
         } catch (error) {
             notyf.error(error.message);
         }
     }
-    
+
     async function searchConversations(query) {
         try {
             const data = await fetchJSON(`/search_conversations?q=${encodeURIComponent(query)}`);
@@ -267,7 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             notyf.error(error.message);
         }
-    }    
+    }
 
     function renderSearchResults(conversations) {
         conversationList.innerHTML = '';
