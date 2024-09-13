@@ -1,91 +1,113 @@
 /* General Styling */
 :root {
-    --primary-color: #007BFF;
-    --secondary-color: #28a745;
-    --background-color: #f4f4f9;
-    --text-color: #333;
-    --light-gray: #f9f9f9;
-    --border-color: #ddd;
-    --user-message-bg: #d1ecf1;
-    --user-message-color: #0c5460;
-    --assistant-message-bg: #f8d7da;
-    --assistant-message-color: #721c24;
+    --primary-color: #A67C52;            /* Warm brown tone */
+    --secondary-color: #8B5E3C;          /* Darker brown for contrast */
+    --background-color: #FDF5E6;         /* Old paper background */
+    --text-color: #5B4636;               /* Dark brown text */
+    --light-gray: #FAF0E6;               /* Off-white for sections */
+    --border-color: #D2B48C;             /* Tan border color */
+    --user-message-bg: #F5F5DC;          /* Beige background */
+    --user-message-color: #5B4636;       /* Dark brown text */
+    --assistant-message-bg: #EEE8AA;     /* Pale goldenrod */
+    --assistant-message-color: #5B4636;  /* Dark brown text */
 }
 
 body {
-    font-family: 'Arial', sans-serif;
+    font-family: 'Georgia', serif;  /* Classic serif font */
     margin: 0;
     padding: 0;
     background-color: var(--background-color);
     color: var(--text-color);
     line-height: 1.6;
+    background-image: url('path/to/your/old-paper-texture.jpg');  /* Add a parchment texture image */
+    background-size: cover;
+    background-attachment: fixed;
 }
 
 .container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
+    background-color: rgba(253, 245, 230, 0.9);  /* Semi-transparent background */
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
-/* Header Styling */
 header {
     background-color: var(--primary-color);
-    color: white;
+    color: var(--text-color);
     padding: 20px 0;
     text-align: center;
+    border-bottom: 2px solid var(--border-color);
 }
 
 h1 {
     margin: 0;
     font-size: 2.5em;
+    text-shadow: 1px 1px var(--light-gray);
 }
 
 nav {
     margin-top: 15px;
 }
 
+nav .btn {
+    margin: 0 5px;
+}
+
 .btn {
     padding: 10px 20px;
-    border: none;
+    border: 1px solid var(--border-color);
     border-radius: 5px;
     cursor: pointer;
     font-size: 1em;
-    transition: background-color 0.3s ease;
+    font-family: 'Georgia', serif;
+    background-color: var(--secondary-color);
+    color: var(--light-gray);
+    transition: background-color 0.3s ease, transform 0.2s;
 }
-
-.btn-reset { background-color: #dc3545; }
-.btn-save { background-color: var(--secondary-color); }
-.btn-list { background-color: #17a2b8; }
-.btn-send { background-color: var(--primary-color); }
-.btn-add { background-color: #ffc107; }
-.btn-upload { background-color: #6c757d; }
 
 .btn:hover {
-    opacity: 0.8;
+    background-color: var(--primary-color);
+    transform: translateY(-2px);
 }
 
-/* Chat Container */
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-reset { background-color: #B5651D; }       /* Darker brown */
+.btn-save { background-color: #8B5E3C; }
+.btn-list { background-color: #A0522D; }
+.btn-send { background-color: var(--primary-color); }
+.btn-add { background-color: #C17A30; }
+.btn-upload { background-color: #CD853F; }
+
 #chat-container {
-    background-color: white;
+    background-color: rgba(250, 240, 230, 0.9);
     border-radius: 10px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     margin-top: 20px;
     overflow: hidden;
+    border: 1px solid var(--border-color);
 }
 
 .chat-history {
     height: 400px;
     overflow-y: auto;
     padding: 20px;
-    background-color: var(--light-gray);
+    background-color: transparent;
+    background-image: url('path/to/your/old-paper-texture.jpg');
+    background-size: cover;
+    background-attachment: fixed;
 }
 
 .user-message, .assistant-message {
     max-width: 80%;
     margin-bottom: 15px;
     padding: 10px 15px;
-    border-radius: 20px;
+    border-radius: 10px;
     clear: both;
+    border: 1px solid var(--border-color);
+    background-color: rgba(255, 255, 240, 0.8);  /* Light parchment color */
 }
 
 .user-message {
@@ -103,7 +125,8 @@ nav {
 .message-input {
     display: flex;
     padding: 20px;
-    background-color: white;
+    background-color: rgba(253, 245, 230, 0.9);
+    border-top: 1px solid var(--border-color);
 }
 
 .message-input input[type="text"] {
@@ -112,21 +135,38 @@ nav {
     border: 1px solid var(--border-color);
     border-radius: 5px;
     font-size: 1em;
+    font-family: 'Georgia', serif;
+    background-color: var(--light-gray);
+    color: var(--text-color);
 }
 
 .message-input button {
     margin-left: 10px;
 }
 
-/* Token Progress */
 .token-progress-container {
     margin-top: 20px;
     text-align: center;
+    background-color: rgba(253, 245, 230, 0.9);
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
 }
 
 progress {
     width: 100%;
     height: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+progress::-webkit-progress-bar {
+    background-color: var(--light-gray);
+}
+
+progress::-webkit-progress-value {
+    background-color: var(--primary-color);
 }
 
 #token-usage-text {
@@ -136,22 +176,23 @@ progress {
     color: var(--text-color);
 }
 
-/* Few-Shot Examples and File Upload */
 .few-shot-examples, .file-upload {
-    background-color: white;
+    background-color: rgba(250, 240, 230, 0.9);
     border-radius: 10px;
     padding: 20px;
     margin-top: 20px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--border-color);
 }
 
-.form-group {
-    margin-bottom: 15px;
+.few-shot-examples h2, .file-upload h2, #saved-conversations h2 {
+    font-family: 'Georgia', serif;
+    text-shadow: 1px 1px var(--light-gray);
 }
 
 .form-group label {
     display: block;
     margin-bottom: 5px;
+    font-weight: bold;
 }
 
 .form-group input[type="text"], .form-group input[type="file"] {
@@ -160,15 +201,17 @@ progress {
     border: 1px solid var(--border-color);
     border-radius: 5px;
     font-size: 1em;
+    background-color: var(--light-gray);
+    color: var(--text-color);
+    font-family: 'Georgia', serif;
 }
 
-/* Saved Conversations */
 #saved-conversations {
-    background-color: white;
+    background-color: rgba(250, 240, 230, 0.9);
     border-radius: 10px;
     padding: 20px;
     margin-top: 20px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--border-color);
 }
 
 #conversation-list {
@@ -188,16 +231,29 @@ progress {
     border-bottom: none;
 }
 
-/* Footer */
+#conversation-list li span {
+    font-family: 'Georgia', serif;
+    color: var(--text-color);
+}
+
+#conversation-list li div .btn {
+    margin-left: 5px;
+}
+
 footer {
     text-align: center;
     margin-top: 20px;
     padding: 20px 0;
-    background-color: var(--light-gray);
+    background-color: rgba(253, 245, 230, 0.9);
     color: var(--text-color);
+    border-top: 1px solid var(--border-color);
 }
 
-/* Responsive Design */
+footer p {
+    margin: 0;
+    font-family: 'Georgia', serif;
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 10px;

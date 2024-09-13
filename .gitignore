@@ -8,3 +8,4 @@ __pycache__/utils.cpython-311.pyc
 .chatapp
 __pycache__
 venv
+.web_chat

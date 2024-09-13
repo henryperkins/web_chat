@@ -1,76 +1,107 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- Meta Tags -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Chatbot using Llama Model">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Llama Token Chatbot</title>
+
+    <!-- External Stylesheets -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Favicon -->
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+
+    <!-- External Scripts -->
+    <script defer src="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Main JavaScript File -->
     <script defer src="{{ url_for('static', filename='script.js') }}"></script>
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <header>
             <h1>Llama Token Chatbot</h1>
             <nav>
-                <button onclick="resetConversation()" class="btn btn-reset">Reset Conversation</button>
-                <button onclick="saveConversation()" class="btn btn-save">Save Conversation</button>
-                <button onclick="listConversations()" class="btn btn-list">List Saved Conversations</button>
+                <button id="new-conversation-button" class="btn btn-new-conversation">New Conversation</button>
+                <button id="reset-button" class="btn btn-reset">Reset Conversation</button>
+                <button id="save-button" class="btn btn-save">Save Conversation</button>
+                <button id="list-button" class="btn btn-list">List Conversations</button>
             </nav>
         </header>
 
+        <!-- Search Bar -->
+        <section class="search-bar">
+            <form id="search-form">
+                <input type="text" id="search-input" placeholder="Search conversations..." aria-label="Search">
+                <button type="submit" class="btn btn-search">Search</button>
+            </form>
+        </section>
+
+        <!-- Main Content -->
         <main>
+            <!-- Chat Container -->
             <section id="chat-container">
                 <div id="chat-history" class="chat-history"></div>
                 <div class="message-input">
-                    <form id="message-form" onsubmit="event.preventDefault(); sendMessage();">
-                        <input type="text" id="user-message" placeholder="Type your message here..." autofocus>
+                    <form id="message-form">
+                        <input type="text" id="user-message" placeholder="Type your message here..." autofocus aria-label="User Message">
                         <button type="submit" class="btn btn-send">Send</button>
                     </form>
                 </div>
             </section>
 
+            <!-- Token Progress Bar -->
             <section id="token-progress-container" class="token-progress-container">
                 <progress id="token-progress-bar" max="128000" value="0"></progress>
-                <span id="token-usage-text"></span>
+                <span id="token-usage-text">Token Usage: 0 / 128000</span>
             </section>
 
+            <!-- Few-Shot Examples -->
             <section class="few-shot-examples">
                 <h2>Add Few-Shot Example</h2>
-                <form id="few-shot-form" onsubmit="event.preventDefault(); addFewShotExample();">
+                <form id="few-shot-form">
                     <div class="form-group">
                         <label for="user-prompt">User Prompt:</label>
-                        <input type="text" id="user-prompt" placeholder="Enter User Prompt">
+                        <input type="text" id="user-prompt" placeholder="Enter User Prompt" aria-label="User Prompt">
                     </div>
                     <div class="form-group">
                         <label for="assistant-response">Assistant Response:</label>
-                        <input type="text" id="assistant-response" placeholder="Enter Assistant Response">
+                        <input type="text" id="assistant-response" placeholder="Enter Assistant Response" aria-label="Assistant Response">
                     </div>
                     <button type="submit" class="btn btn-add">Add Example</button>
                 </form>
             </section>
 
+            <!-- File Upload -->
             <section class="file-upload">
                 <h2>Upload File for Analysis</h2>
-                <form id="file-upload-form" onsubmit="event.preventDefault(); uploadFile();">
-                    <input type="file" id="file-input" accept=".txt,.json,.md" title="Choose a file to upload">
+                <form id="file-upload-form">
+                    <div class="form-group">
+                        <label for="file-input">Choose a file to upload:</label>
+                        <input type="file" id="file-input" accept=".txt,.json,.md" aria-label="File Input">
+                    </div>
                     <button type="submit" class="btn btn-upload">Upload File</button>
                 </form>
             </section>
 
+            <!-- Saved Conversations -->
             <section id="saved-conversations">
-                <h2>Saved Conversations</h2>
+                <h2>Conversations</h2>
                 <ul id="conversation-list"></ul>
             </section>
         </main>
 
+        <!-- Footer -->
         <footer>
-            <p>&copy; 2023 Llama Token Chatbot. All rights reserved.</p>
+            <p>&copy; <span id="current-year"></span> Llama Token Chatbot. All rights reserved.</p>
         </footer>
     </div>
+
+    <!-- JavaScript to Update Footer Year -->
+    <script>
+        document.getElementById('current-year').textContent = new Date().getFullYear();
+    </script>
 </body>
 </html>

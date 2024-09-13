@@ -7,35 +7,20 @@ import json
 from datetime import datetime, timedelta
 from redis import Redis, ConnectionError
 import requests
-from dotenv import load_dotenv
 import logging
-
-# Import the consolidated utility functions
+from pymongo import MongoClient  # Import MongoClient
+import uuid
 from utils import count_tokens, manage_token_limits, allowed_file, file_size_under_limit, handle_file_chunks, analyze_chunk_with_llama
-
-app = Flask(__name__, static_url_path='', static_folder='static', template_folder='templates')
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-
-# Load environment variables from a .env file
-load_dotenv()
-
-# Securely obtain API keys and URLs from the environment
-AZURE_API_URL = os.getenv('AZURE_API_URL')
-API_KEY = os.getenv('API_KEY')
-MAX_TOKENS = int(os.getenv('MAX_TOKENS', 32000))
-REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 1000))
-
-HEADERS = {
-    "Content-Type": "application/json",
-    "api-key": API_KEY,
-    "Authorization": f"Bearer {API_KEY}"  # Add Authorization header
-}
 
 # Ensure the saved_conversations directory exists
 SAVED_CONVERSATIONS_DIR = './saved_conversations'
 os.makedirs(SAVED_CONVERSATIONS_DIR, exist_ok=True)
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+app = Flask(__name__, static_url_path='', static_folder='static', template_folder='templates')
 
 # Updated Redis configuration with error handling
 try:
@@ -47,66 +32,103 @@ try:
     app.config['SESSION_REDIS'] = redis_server
 except ConnectionError as e:
     # Gracefully handle Redis connection failure
-    logging.warning(f"Redis server is not reachable. Session management will fall back to filesystem. Error: {str(e)}")
-    app.config['SESSION_TYPE'] = 'filesystem'  # Fallback to filesystem session storage or another solution
-    app.config['SESSION_PERMANENT'] = True         # Make sessions non-permanent by default
-    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # Sessions last for 30 minutes
-    app.config['SESSION_USE_SIGNER'] = True         # Sign the session ID for added security
-    app.config['SESSION_KEY_PREFIX'] = 'sess:'      # Prefix for session keys in Redis
-    app.config['SESSION_COOKIE_NAME'] = 'my_app_session'  # Name of the session cookie
+    logging.warning(f"Redis server is not reachable. Falling back to filesystem. Error: {str(e)}")
+    app.config.pop('SESSION_REDIS', None)  # Remove Redis config
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+    app.config['SESSION_USE_SIGNER'] = True
+    app.config['SESSION_COOKIE_NAME'] = 'my_app_session'
 
-# Set a secret key for securely signing the session cookies
-app.secret_key = 'your_secret_key'
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
-# Initialize session extension
+# Securely obtain configuration variables
+AZURE_API_URL = os.getenv('AZURE_API_URL')
+API_KEY = os.getenv('API_KEY')
+SECRET_KEY = os.getenv('SECRET_KEY', 'default_secret_key')
+MONGODB_URI = os.getenv('MONGODB_URI')
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 32000))
+REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 1000))
+
+HEADERS = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {API_KEY}"
+}
+
+# Initialize MongoDB client
+mongo_client = MongoClient(MONGODB_URI)
+db = mongo_client['chatbot_db']
+conversations_collection = db['conversations']
+
+# Set secret key for session
+app.secret_key = SECRET_KEY
+
+# Initialize session
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = False
 Session(app)
 
-# Initialize SocketIO for real-time WebSocket communication
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 @app.route('/')
 def index():
-    """
-    Serve the main page of the application.
-    """
+    """Serve the main page of the application."""
     return render_template('index.html')
 
-@app.route('/reset_conversation', methods=['POST'])
-def reset_conversation():
-    """
-    Resets the ongoing conversation by clearing the stored conversation history
-    within the user's session.
+@app.route('/start_conversation', methods=['POST'])
+def start_conversation():
+    """Starts a new conversation and assigns a unique conversation ID."""
+    conversation_id = str(uuid.uuid4())
+    session['conversation_id'] = conversation_id
+    user_id = session.get('user_id', 'anonymous')
 
-    Returns:
-        Success message in JSON format indicating the conversation has been reset.
-    """
+    # Initialize empty conversation history
+    conversation_history = []
+
+    # Save to MongoDB
+    conversations_collection.insert_one({
+        'conversation_id': conversation_id,
+        'user_id': user_id,
+        'conversation_history': conversation_history,
+        'created_at': datetime.utcnow()
+    })
+
+    return jsonify({"message": "New conversation started.", "conversation_id": conversation_id}), 200
+
+###
+### @app.route('/reset_conversation', methods=['POST'])
+def reset_conversation():
+    """Resets the ongoing conversation by clearing the stored conversation history within the user's session."""
     try:
-        # Reset only conversation-related session data
         session.pop('conversation', None)
         return jsonify({"message": "Conversation has been reset successfully!"}), 200
-
     except Exception as e:
         logging.error(f"Error resetting conversation: {str(e)}")
         return jsonify({"message": "An error occurred resetting the conversation", "error": str(e)}), 500
-
+###
+###
 @app.route('/list_conversations', methods=['GET'])
 def list_conversations():
-    try:
-        if not os.path.exists(SAVED_CONVERSATIONS_DIR):
-            logging.warning(f"Directory {SAVED_CONVERSATIONS_DIR} does not exist.")
-            return jsonify({"conversations": []}), 200
+    """Lists all conversations for the current user."""
+    user_id = session.get('user_id', 'anonymous')
+    conversations = conversations_collection.find({'user_id': user_id}, {'_id': 0, 'conversation_id': 1, 'created_at': 1})
+    conversation_list = list(conversations)
+    return jsonify({"conversations": conversation_list}), 200
 
-        files = os.listdir(SAVED_CONVERSATIONS_DIR)
-        conversation_files = [file for file in files if file.endswith('.json')]
-        logging.info(f"Found {len(conversation_files)} conversation files.")
-        return jsonify({"conversations": conversation_files}), 200
-
-    except Exception as e:
-        logging.error(f"Error listing conversations: {str(e)}")
-        return jsonify({"message": f"Failed to list conversations: {str(e)}"}), 500
+@app.route('/load_conversation/<conversation_id>', methods=['GET'])
+def load_conversation(conversation_id):
+    """Loads a conversation by ID."""
+    user_id = session.get('user_id', 'anonymous')
+    conversation = conversations_collection.find_one({'conversation_id': conversation_id, 'user_id': user_id})
+    if conversation:
+        session['conversation_id'] = conversation_id
+        return jsonify({"conversation": conversation['conversation_history']}), 200
+    else:
+        return jsonify({"message": "Conversation not found."}), 404
 
 @app.route('/save_history', methods=['POST'])
 def save_history():
+    """Saves the current conversation history to a JSON file."""
     conversation = session.get('conversation', [])
     if not conversation:
         return jsonify({"message": "No conversation to save"}), 400
@@ -124,41 +146,30 @@ def save_history():
         logging.error(f"Error saving conversation: {str(e)}")
         return jsonify({"message": f"Failed to save conversation: {str(e)}"}), 500
 
-@app.route('/load_conversation/<filename>', methods=['GET'])
-def load_conversation(filename):
-    """
-    Loads a saved conversation from a JSON file on the server.
-    This is useful for restoring past conversations when a user continues an interrupted chat session.
+@app.route('/search_conversations', methods=['GET'])
+def search_conversations():
+    """Searches across all conversations for the current user."""
+    query = request.args.get('q')
+    user_id = session.get('user_id', 'anonymous')
 
-    Returns the conversation (in JSON) and repopulates it back into the session storage for continuity.
-    """
-    try:
-        file_path = os.path.join(SAVED_CONVERSATIONS_DIR, filename)
-        if not os.path.exists(file_path):
-            return jsonify({"message": f"Conversation file {filename} not found"}), 404
+    if not query:
+        return jsonify({"message": "No search query provided."}), 400
 
-        with open(file_path, 'r') as file:
-            conversation_history = json.load(file)
+    # Perform text search
+    conversations = conversations_collection.find(
+        {
+            'user_id': user_id,
+            '$text': {'$search': query}
+        },
+        {'_id': 0, 'conversation_id': 1, 'conversation_history': 1}
+    )
 
-        # Repopulate session with loaded conversation
-        session['conversation'] = conversation_history
-
-        logging.info(f"Conversation loaded successfully: {filename}")
-        return jsonify({"conversation": conversation_history}), 200
-    except Exception as e:
-        logging.error(f"Error loading conversation: {str(e)}")
-        return jsonify({"message": "Error loading conversation", "error": str(e)}), 500
+    conversation_list = list(conversations)
+    return jsonify({"conversations": conversation_list}), 200
 
 @app.route('/add_few_shot_example', methods=['POST'])
 def add_few_shot_example():
-    """
-    Adds few-shot examples to the ongoing conversation stored in the session.
-    Few-shot learning is a technique that informs the model by providing specific examples
-    of how it should respond in future conversations, improving its responsiveness/accuracy.
-
-    The function parses the user's prompt and the desired model (assistant) response and appends
-    those to the conversation history.
-    """
+    """Adds few-shot examples to the ongoing conversation stored in the session."""
     data = request.json
     user_prompt = data.get("user_prompt")
     assistant_response = data.get("assistant_response")
@@ -166,11 +177,9 @@ def add_few_shot_example():
     if not user_prompt or not assistant_response:
         return jsonify({"message": "Both 'user_prompt' and 'assistant_response' are required."}), 400
 
-    # Ensure conversation session exists
     if 'conversation' not in session:
         session['conversation'] = []
 
-    # Append few-shot examples to the conversation
     session['conversation'].extend([
         {"role": "user", "content": user_prompt},
         {"role": "assistant", "content": assistant_response}
@@ -181,29 +190,40 @@ def add_few_shot_example():
 
 @socketio.on('send_message')
 def handle_message(data):
+    """Handles incoming messages via WebSocket."""
     user_message = data.get('message')
+    conversation_id = session.get('conversation_id')
+    user_id = session.get('user_id', 'anonymous')
 
     if not user_message:
         emit('error', {'message': 'No message received from user.'})
         return
 
-    if 'conversation' not in session:
-        session['conversation'] = []
+    if not conversation_id:
+        emit('error', {'message': 'No active conversation. Please start a new conversation.'})
+        return
 
-    conversation_history, total_tokens_used = manage_token_limits(session['conversation'], user_message)
+    # Load conversation history from MongoDB
+    conversation = conversations_collection.find_one({'conversation_id': conversation_id, 'user_id': user_id})
+    if conversation:
+        conversation_history = conversation['conversation_history']
+    else:
+        conversation_history = []
+
+    # Manage token limits
+    conversation_history, total_tokens_used = manage_token_limits(conversation_history, user_message)
+    conversations_collection.update_one(
+        {'conversation_id': conversation_id, 'user_id': user_id},
+        {'$set': {'conversation_history': conversation_history}}
+    )
 
     emit('token_usage', {'total_tokens_used': total_tokens_used})
-
-    conversation_history.append({"role": "user", "content": user_message})
 
     payload = {
         'messages': conversation_history,
         'max_tokens': REPLY_TOKENS,
         'temperature': 0.7,
-        'top_p': 0.95,
-        'frequency_penalty': 0,
-        'presence_penalty': 0,
-        'stop': None
+        'top_p': 0.95
     }
 
     try:
@@ -211,35 +231,38 @@ def handle_message(data):
         response.raise_for_status()
         response_data = response.json()
 
-        if 'choices' in response_data and len(response_data['choices']) > 0:
-            assistant_response = response_data['choices'][0]['message']['content']
+        assistant_response = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+        if assistant_response:
+            # Update conversation history
             conversation_history.append({"role": "assistant", "content": assistant_response})
-            session['conversation'] = conversation_history
-
-            # Emit the full response
+            conversations_collection.update_one(
+                {'conversation_id': conversation_id, 'user_id': user_id},
+                {'$set': {'conversation_history': conversation_history}}
+            )
             emit('response_chunk', {'chunk': assistant_response})
-
-            _, final_token_usage = manage_token_limits(conversation_history)
-            emit('token_usage', {'total_tokens_used': final_token_usage})
         else:
             emit('error', {'message': "No valid response from the API"})
 
     except requests.RequestException as request_error:
-        logging.error(f"Failed to communicate with Llama API: {str(request_error)}")
-        emit('error', {'message': f"Failed to communicate with Llama API: {str(request_error)}"})
+        logging.error(f"Failed to communicate with API: {str(request_error)}")
+        emit('error', {'message': f"Failed to communicate with API: {str(request_error)}"})
 
-    except Exception as general_error:
-        logging.error(f"An unexpected error occurred: {str(general_error)}")
-        emit('error', {'message': f"An unexpected error occurred: {str(general_error)}"})
+@app.route('/get_config')
+def get_config():
+    """Returns configuration data like MAX_TOKENS."""
+    return jsonify({"max_tokens": MAX_TOKENS})
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
+    """Handles file uploads, validates and processes files."""
     if 'file' not in request.files or request.files['file'].filename == '':
         return jsonify({"message": "No file selected."}), 400
 
     file = request.files['file']
+    filename = secure_filename(file.filename)
 
-    if not allowed_file(file.filename):
+    if not allowed_file(filename):
         return jsonify({"message": "Unsupported file type."}), 400
 
     if not file_size_under_limit(file):
@@ -248,10 +271,8 @@ def upload_file():
     try:
         file_content = file.read().decode('utf-8')
         _, full_analysis_result = handle_file_chunks(file_content)
-
-        logging.info(f"File uploaded and analyzed successfully: {file.filename}")
-        return jsonify({ "message": "File was uploaded and analyzed successfully.", "analysis": full_analysis_result }), 200
-
+        logging.info(f"File uploaded and analyzed successfully: {filename}")
+        return jsonify({"message": "File was uploaded and analyzed successfully.", "analysis": full_analysis_result}), 200
     except Exception as e:
         logging.error(f"Error uploading or analyzing file: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
