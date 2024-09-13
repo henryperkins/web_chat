@@ -95,18 +95,24 @@ def start_conversation():
 
     return jsonify({"message": "New conversation started.", "conversation_id": conversation_id}), 200
 
-###
-### @app.route('/reset_conversation', methods=['POST'])
+@app.route('/reset_conversation', methods=['POST'])
 def reset_conversation():
-    """Resets the ongoing conversation by clearing the stored conversation history within the user's session."""
+    """Resets the ongoing conversation by clearing the stored conversation history."""
     try:
-        session.pop('conversation', None)
+        conversation_id = session.get('conversation_id')
+        user_id = session.get('user_id', 'anonymous')
+        if not conversation_id:
+            return jsonify({"message": "No active conversation to reset."}), 400
+
+        # Reset conversation history in the database
+        conversations_collection.update_one(
+            {'conversation_id': conversation_id, 'user_id': user_id},
+            {'$set': {'conversation_history': []}}
+        )
         return jsonify({"message": "Conversation has been reset successfully!"}), 200
     except Exception as e:
         logging.error(f"Error resetting conversation: {str(e)}")
         return jsonify({"message": "An error occurred resetting the conversation", "error": str(e)}), 500
-###
-###
 @app.route('/list_conversations', methods=['GET'])
 def list_conversations():
     """Lists all conversations for the current user."""
@@ -125,26 +131,6 @@ def load_conversation(conversation_id):
         return jsonify({"conversation": conversation['conversation_history']}), 200
     else:
         return jsonify({"message": "Conversation not found."}), 404
-
-@app.route('/save_history', methods=['POST'])
-def save_history():
-    """Saves the current conversation history to a JSON file."""
-    conversation = session.get('conversation', [])
-    if not conversation:
-        return jsonify({"message": "No conversation to save"}), 400
-
-    # Use a user-friendly timestamp for unique filenames or UUID
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    file_name = f'{timestamp}_conversation_history.json'
-
-    try:
-        with open(os.path.join(SAVED_CONVERSATIONS_DIR, file_name), 'w') as outfile:
-            json.dump(conversation, outfile)
-        logging.info(f"Conversation saved successfully: {file_name}")
-        return jsonify({"message": "Conversation history saved successfully."}), 200
-    except Exception as e:
-        logging.error(f"Error saving conversation: {str(e)}")
-        return jsonify({"message": f"Failed to save conversation: {str(e)}"}), 500
 
 @app.route('/search_conversations', methods=['GET'])
 def search_conversations():

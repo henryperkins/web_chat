@@ -84,6 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         console.error('Element search-form not found.');
     }
+    
 
     // Buttons Event Listeners
     const newConversationButton = document.getElementById('new-conversation-button');
@@ -132,23 +133,19 @@ document.addEventListener('DOMContentLoaded', () => {
         currentConversationId = conversationId;
         sessionStorage.setItem('conversation_id', conversationId);
     }    
+
     async function startNewConversation() {
         try {
-            const response = await fetch('/start_conversation', { method: 'POST' });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message);
-            }
+            const data = await fetchJSON('/start_conversation', { method: 'POST' });
             setCurrentConversation(data.conversation_id);
             chatHistory.innerHTML = '';
             notyf.success('Started a new conversation.');
+            updateTokenUsage({ total_tokens_used: 0 }); // Add this line
+            listConversations();
         } catch (error) {
             notyf.error(error.message);
         }
     }
-    
-    document.getElementById('new-conversation-button').addEventListener('click', startNewConversation);
-    
 
     function sendMessage() {
         const message = userMessageInput.value.trim();
@@ -211,11 +208,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function saveConversation() {
-        // Since conversations are automatically saved in the database, this function could notify the user
-        notyf.success('Conversation is automatically saved.');
-    }
-
     async function listConversations() {
         try {
             const data = await fetchJSON('/list_conversations');
@@ -256,38 +248,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await fetchJSON(`/load_conversation/${encodeURIComponent(conversationId)}`);
             setCurrentConversation(conversationId);
             chatHistory.innerHTML = '';
-            data.conversation.forEach(entry => {
-                appendMessage(entry.role, entry.content);
-            });
+            if (data.conversation && data.conversation.length > 0) {
+                data.conversation.forEach(entry => {
+                    appendMessage(entry.role, entry.content);
+                });
+            }
             notyf.success('Conversation loaded.');
             updateTokenUsage({ total_tokens_used: data.total_tokens_used || 0 });
         } catch (error) {
             notyf.error(error.message);
         }
     }
-
+    
     async function searchConversations(query) {
         try {
-            const response = await fetch(`/search_conversations?q=${encodeURIComponent(query)}`);
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message);
-            }
+            const data = await fetchJSON(`/search_conversations?q=${encodeURIComponent(query)}`);
             renderSearchResults(data.conversations);
         } catch (error) {
             notyf.error(error.message);
         }
-    }
-    
-    function renderSearchResults(conversations) {
-        // Implement rendering of search results in the UI
-    }
-    
-    document.getElementById('search-form').addEventListener('submit', function(event) {
-        event.preventDefault();
-        const query = document.getElementById('search-input').value;
-        searchConversations(query);
-    });    
+    }    
 
     function renderSearchResults(conversations) {
         conversationList.innerHTML = '';
