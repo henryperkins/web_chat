@@ -273,6 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
             notyf.error(error.message);
         }
     }
+    
 
     function renderSearchResults(conversations) {
         conversationList.innerHTML = '';

@@ -94,6 +94,8 @@ def start_conversation():
     })
 
     return jsonify({"message": "New conversation started.", "conversation_id": conversation_id}), 200
+def update_conversation_text(conversation_history):
+    return ' '.join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in conversation_history])
 
 @app.route('/reset_conversation', methods=['POST'])
 def reset_conversation():
@@ -142,16 +144,46 @@ def search_conversations():
         return jsonify({"message": "No search query provided."}), 400
 
     # Perform text search
-    conversations = conversations_collection.find(
+    results = conversations_collection.find(
         {
             'user_id': user_id,
             '$text': {'$search': query}
         },
-        {'_id': 0, 'conversation_id': 1, 'conversation_history': 1}
-    )
+        {
+            '_id': 0,
+            'conversation_id': 1,
+            'created_at': 1,
+            'updated_at': 1,
+            'score': {'$meta': 'textScore'}
+        }
+    ).sort([('score', {'$meta': 'textScore'})])
 
-    conversation_list = list(conversations)
-    return jsonify({"conversations": conversation_list}), 200
+    conversations = []
+    for conv in results:
+        conversations.append({
+            'conversation_id': conv['conversation_id'],
+            'created_at': conv['created_at'],
+            'updated_at': conv.get('updated_at'),
+            'score': conv['score']
+        })
+
+    return jsonify({"conversations": conversations}), 200
+
+
+def save_conversation(conversation_id, user_id, conversation_history):
+    """Saves or updates a conversation document in the database."""
+    conversation_text = update_conversation_text(conversation_history)
+    updated_at = datetime.utcnow()
+
+    conversations_collection.update_one(
+        {'conversation_id': conversation_id, 'user_id': user_id},
+        {'$set': {
+            'conversation_history': conversation_history,
+            'conversation_text': conversation_text,
+            'updated_at': updated_at
+        }},
+        upsert=True  # Create the document if it doesn't exist
+    )
 
 @app.route('/add_few_shot_example', methods=['POST'])
 def add_few_shot_example():
@@ -262,6 +294,64 @@ def upload_file():
     except Exception as e:
         logging.error(f"Error uploading or analyzing file: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+# app.py or a separate script
+
+validation_schema = {
+    '$jsonSchema': {
+        'bsonType': 'object',
+        'required': ['conversation_id', 'user_id', 'conversation_history', 'created_at'],
+        'properties': {
+            'conversation_id': {
+                'bsonType': 'string',
+                'description': 'must be a string and is required'
+            },
+            'user_id': {
+                'bsonType': 'string',
+                'description': 'must be a string and is required'
+            },
+            'conversation_history': {
+                'bsonType': 'array',
+                'items': {
+                    'bsonType': 'object',
+                    'required': ['role', 'content'],
+                    'properties': {
+                        'role': {
+                            'enum': ['user', 'assistant'],
+                            'description': 'can only be "user" or "assistant"'
+                        },
+                        'content': {
+                            'bsonType': 'string',
+                            'description': 'must be a string and is required'
+                        }
+                    }
+                }
+            },
+            'conversation_text': {
+                'bsonType': 'string',
+                'description': 'must be a string'
+            },
+            'created_at': {
+                'bsonType': 'date',
+                'description': 'must be a date and is required'
+            },
+            'updated_at': {
+                'bsonType': 'date',
+                'description': 'must be a date'
+            }
+        }
+    }
+}
+    
+try:
+    db.create_collection('conversations', validator=validation_schema)
+    print("Collection 'conversations' created with schema validation.")
+except Exception as e:
+    if 'already exists' in str(e):
+        # Update the existing collection with the validation schema
+        db.command('collMod', 'conversations', validator=validation_schema)
+        print("Collection 'conversations' already exists. Schema validation applied.")
+    else:
+        print(f"An error occurred: {e}")
 
 if __name__ == '__main__':
     # Launch the Flask app with SocketIO enabled
