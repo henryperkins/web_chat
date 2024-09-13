@@ -1,74 +1,112 @@
+# app.py
+
+from datetime import datetime
+import json
 from flask import Flask, session, jsonify, request, render_template
+from werkzeug.utils import secure_filename
 from flask_session import Session
 from flask_socketio import SocketIO, emit
-from werkzeug.utils import secure_filename
 import os
-import json
-from datetime import datetime, timedelta
-from redis import Redis, ConnectionError
-import requests
 import logging
-from pymongo import MongoClient  # Import MongoClient
+import requests
+from bson import json_util
 import uuid
-from utils import count_tokens, manage_token_limits, allowed_file, file_size_under_limit, handle_file_chunks, analyze_chunk_with_llama
-
-# Ensure the saved_conversations directory exists
-SAVED_CONVERSATIONS_DIR = './saved_conversations'
-os.makedirs(SAVED_CONVERSATIONS_DIR, exist_ok=True)
+from pymongo import MongoClient, ASCENDING, DESCENDING, TEXT
+from dotenv import load_dotenv
+from utils import (
+    allowed_file,
+    file_size_under_limit,
+    handle_file_chunks,
+    generate_conversation_text
+)
 
 # Load environment variables
-from dotenv import load_dotenv
 load_dotenv()
 
-app = Flask(__name__, static_url_path='', static_folder='static', template_folder='templates')
-
-# Updated Redis configuration with error handling
-try:
-    # Setup Redis server for session management
-    redis_server = Redis(host='localhost', port=6379)
-    # Test the Redis connection
-    redis_server.ping()
-    app.config['SESSION_TYPE'] = 'redis'
-    app.config['SESSION_REDIS'] = redis_server
-except ConnectionError as e:
-    # Gracefully handle Redis connection failure
-    logging.warning(f"Redis server is not reachable. Falling back to filesystem. Error: {str(e)}")
-    app.config.pop('SESSION_REDIS', None)  # Remove Redis config
-    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
-    app.config['SESSION_USE_SIGNER'] = True
-    app.config['SESSION_COOKIE_NAME'] = 'my_app_session'
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-
-# Securely obtain configuration variables
-AZURE_API_URL = os.getenv('AZURE_API_URL')
-API_KEY = os.getenv('API_KEY')
-SECRET_KEY = os.getenv('SECRET_KEY', 'default_secret_key')
-MONGODB_URI = os.getenv('MONGODB_URI')
-MAX_TOKENS = int(os.getenv('MAX_TOKENS', 32000))
-REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 1000))
-
-HEADERS = {
-    "Content-Type": "application/json",
-    "Authorization": f"Bearer {API_KEY}"
-}
-
-# Initialize MongoDB client
-mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client['chatbot_db']
-conversations_collection = db['conversations']
-
-# Set secret key for session
-app.secret_key = SECRET_KEY
-
-# Initialize session
+# Flask app initialization
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 Session(app)
 
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+# Initialize MongoDB client
+MONGODB_URI = os.getenv('MONGODB_URI')
+mongo_client = MongoClient(MONGODB_URI)
+db = mongo_client['chatbot_db']
+conversations_collection = db['conversations']
+AZURE_API_URL = os.getenv('AZURE_API_URL')
+API_KEY = os.getenv('API_KEY')
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 128000))
+REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 800))
+CHUNK_SIZE_TOKENS = int(os.getenv('CHUNK_SIZE_TOKENS', 1000))
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Initialize SocketIO with Eventlet
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# Validation schema (ensure this matches your actual schema)
+validation_schema = {
+    '$jsonSchema': {
+        'bsonType': 'object',
+        'required': ['conversation_id', 'user_id', 'conversation_history', 'created_at'],
+        'properties': {
+            'conversation_id': {'bsonType': 'string'},
+            'user_id': {'bsonType': 'string'},
+            'conversation_history': {
+                'bsonType': 'array',
+                'items': {
+                    'bsonType': 'object',
+                    'required': ['role', 'content'],
+                    'properties': {
+                        'role': {'enum': ['user', 'assistant']},
+                        'content': {'bsonType': 'string'}
+                    }
+                }
+            },
+            'conversation_text': {'bsonType': 'string'},
+            'created_at': {'bsonType': 'date'},
+            'updated_at': {'bsonType': 'date'}
+        }
+    }
+}
+
+def initialize_db():
+    try:
+        # Apply validation schema
+        db.create_collection('conversations', validator=validation_schema)
+        logging.info("Collection 'conversations' created with schema validation.")
+    except Exception as e:
+        if 'already exists' in str(e):
+            db.command('collMod', 'conversations', validator=validation_schema)
+            logging.info("Schema validation applied to existing 'conversations' collection.")
+        else:
+            logging.error(f"Error creating collection with validation: {e}")
+
+    # Create indexes
+    conversations_collection.create_index(
+        [('conversation_text', TEXT)],
+        name='conversation_text_index',
+        default_language='english'
+    )
+    logging.info("Text index created on 'conversation_text' field.")
+
+    conversations_collection.create_index(
+        [('conversation_id', ASCENDING), ('user_id', ASCENDING)],
+        name='conversation_user_idx',
+        unique=True
+    )
+    logging.info("Unique index created on 'conversation_id' and 'user_id' fields.")
+
+    conversations_collection.create_index(
+        [('created_at', DESCENDING)],
+        name='created_at_idx'
+    )
+    logging.info("Index created on 'created_at' field.")
+
+# Initialize the database
+initialize_db()
 
 @app.route('/')
 def index():
@@ -84,18 +122,20 @@ def start_conversation():
 
     # Initialize empty conversation history
     conversation_history = []
+    conversation_text = ''
+    created_at = datetime.utcnow()
 
     # Save to MongoDB
     conversations_collection.insert_one({
         'conversation_id': conversation_id,
         'user_id': user_id,
         'conversation_history': conversation_history,
-        'created_at': datetime.utcnow()
+        'conversation_text': conversation_text,
+        'created_at': created_at,
+        'updated_at': created_at
     })
 
     return jsonify({"message": "New conversation started.", "conversation_id": conversation_id}), 200
-def update_conversation_text(conversation_history):
-    return ' '.join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in conversation_history])
 
 @app.route('/reset_conversation', methods=['POST'])
 def reset_conversation():
@@ -103,23 +143,32 @@ def reset_conversation():
     try:
         conversation_id = session.get('conversation_id')
         user_id = session.get('user_id', 'anonymous')
+
         if not conversation_id:
             return jsonify({"message": "No active conversation to reset."}), 400
 
-        # Reset conversation history in the database
+        # Reset conversation in MongoDB
         conversations_collection.update_one(
             {'conversation_id': conversation_id, 'user_id': user_id},
-            {'$set': {'conversation_history': []}}
+            {'$set': {
+                'conversation_history': [],
+                'conversation_text': '',
+                'updated_at': datetime.utcnow()
+            }}
         )
         return jsonify({"message": "Conversation has been reset successfully!"}), 200
     except Exception as e:
         logging.error(f"Error resetting conversation: {str(e)}")
         return jsonify({"message": "An error occurred resetting the conversation", "error": str(e)}), 500
+
 @app.route('/list_conversations', methods=['GET'])
 def list_conversations():
     """Lists all conversations for the current user."""
     user_id = session.get('user_id', 'anonymous')
-    conversations = conversations_collection.find({'user_id': user_id}, {'_id': 0, 'conversation_id': 1, 'created_at': 1})
+    conversations = conversations_collection.find(
+        {'user_id': user_id},
+        {'_id': 0, 'conversation_id': 1, 'created_at': 1}
+    ).sort('created_at', DESCENDING)
     conversation_list = list(conversations)
     return jsonify({"conversations": conversation_list}), 200
 
@@ -127,12 +176,46 @@ def list_conversations():
 def load_conversation(conversation_id):
     """Loads a conversation by ID."""
     user_id = session.get('user_id', 'anonymous')
-    conversation = conversations_collection.find_one({'conversation_id': conversation_id, 'user_id': user_id})
+    conversation = conversations_collection.find_one(
+        {'conversation_id': conversation_id, 'user_id': user_id},
+        {'_id': 0}
+    )
     if conversation:
         session['conversation_id'] = conversation_id
         return jsonify({"conversation": conversation['conversation_history']}), 200
     else:
         return jsonify({"message": "Conversation not found."}), 404
+
+@app.route('/save_history', methods=['POST'])
+def save_history():
+    """Saves the current conversation history to a JSON file."""
+    conversation_id = session.get('conversation_id')
+    user_id = session.get('user_id', 'anonymous')
+
+    if not conversation_id:
+        return jsonify({"message": "No active conversation to save."}), 400
+
+    conversation = conversations_collection.find_one(
+        {'conversation_id': conversation_id, 'user_id': user_id},
+        {'_id': 0}
+    )
+
+    if not conversation:
+        return jsonify({"message": "Conversation not found."}), 404
+
+    # Use a timestamp for unique filenames
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    file_name = f'{timestamp}_{conversation_id}_conversation_history.json'
+
+    try:
+        os.makedirs('saved_conversations', exist_ok=True)  # Ensure directory exists
+        with open(os.path.join('saved_conversations', file_name), 'w') as outfile:
+            json.dump(conversation, outfile, default=json_util.default)
+        logging.info(f"Conversation saved successfully: {file_name}")
+        return jsonify({"message": "Conversation history saved successfully."}), 200
+    except Exception as e:
+        logging.error(f"Error saving conversation: {str(e)}")
+        return jsonify({"message": f"Failed to save conversation: {str(e)}"}), 500
 
 @app.route('/search_conversations', methods=['GET'])
 def search_conversations():
@@ -150,7 +233,6 @@ def search_conversations():
             '$text': {'$search': query}
         },
         {
-            '_id': 0,
             'conversation_id': 1,
             'created_at': 1,
             'updated_at': 1,
@@ -162,32 +244,16 @@ def search_conversations():
     for conv in results:
         conversations.append({
             'conversation_id': conv['conversation_id'],
-            'created_at': conv['created_at'],
-            'updated_at': conv.get('updated_at'),
+            'created_at': conv['created_at'].isoformat(),
+            'updated_at': conv.get('updated_at', '').isoformat(),
             'score': conv['score']
         })
 
     return jsonify({"conversations": conversations}), 200
 
-
-def save_conversation(conversation_id, user_id, conversation_history):
-    """Saves or updates a conversation document in the database."""
-    conversation_text = update_conversation_text(conversation_history)
-    updated_at = datetime.utcnow()
-
-    conversations_collection.update_one(
-        {'conversation_id': conversation_id, 'user_id': user_id},
-        {'$set': {
-            'conversation_history': conversation_history,
-            'conversation_text': conversation_text,
-            'updated_at': updated_at
-        }},
-        upsert=True  # Create the document if it doesn't exist
-    )
-
 @app.route('/add_few_shot_example', methods=['POST'])
 def add_few_shot_example():
-    """Adds few-shot examples to the ongoing conversation stored in the session."""
+    """Adds few-shot examples to the ongoing conversation."""
     data = request.json
     user_prompt = data.get("user_prompt")
     assistant_response = data.get("assistant_response")
@@ -195,13 +261,39 @@ def add_few_shot_example():
     if not user_prompt or not assistant_response:
         return jsonify({"message": "Both 'user_prompt' and 'assistant_response' are required."}), 400
 
-    if 'conversation' not in session:
-        session['conversation'] = []
+    conversation_id = session.get('conversation_id')
+    user_id = session.get('user_id', 'anonymous')
 
-    session['conversation'].extend([
+    if not conversation_id:
+        return jsonify({"message": "No active conversation. Please start a new conversation."}), 400
+
+    # Load conversation from MongoDB
+    conversation = conversations_collection.find_one(
+        {'conversation_id': conversation_id, 'user_id': user_id}
+    )
+
+    if not conversation:
+        return jsonify({"message": "Conversation not found."}), 404
+
+    conversation_history = conversation['conversation_history']
+    conversation_history.extend([
         {"role": "user", "content": user_prompt},
         {"role": "assistant", "content": assistant_response}
     ])
+
+    # Update conversation_text
+    conversation_text = generate_conversation_text(conversation_history)
+    updated_at = datetime.utcnow()
+
+    # Save updated conversation
+    conversations_collection.update_one(
+        {'conversation_id': conversation_id, 'user_id': user_id},
+        {'$set': {
+            'conversation_history': conversation_history,
+            'conversation_text': conversation_text,
+            'updated_at': updated_at
+        }}
+    )
 
     logging.info("Few-shot example added successfully")
     return jsonify({"message": "Few-shot example added successfully!"}), 200
@@ -228,15 +320,14 @@ def handle_message(data):
     else:
         conversation_history = []
 
-    # Manage token limits
-    conversation_history, total_tokens_used = manage_token_limits(conversation_history, user_message)
-    conversations_collection.update_one(
-        {'conversation_id': conversation_id, 'user_id': user_id},
-        {'$set': {'conversation_history': conversation_history}}
-    )
+    # Add user's message to conversation history
+    conversation_history.append({"role": "user", "content": user_message})
 
+    # Manage token limits
+    conversation_history, total_tokens_used = manage_token_limits(conversation_history)
     emit('token_usage', {'total_tokens_used': total_tokens_used})
 
+    # Prepare payload for API request
     payload = {
         'messages': conversation_history,
         'max_tokens': REPLY_TOKENS,
@@ -252,12 +343,24 @@ def handle_message(data):
         assistant_response = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
 
         if assistant_response:
-            # Update conversation history
+            # Add assistant's response to conversation history
             conversation_history.append({"role": "assistant", "content": assistant_response})
+
+            # Update conversation_text
+            conversation_text = generate_conversation_text(conversation_history)
+            updated_at = datetime.utcnow()
+
+            # Save updated conversation
             conversations_collection.update_one(
                 {'conversation_id': conversation_id, 'user_id': user_id},
-                {'$set': {'conversation_history': conversation_history}}
+                {'$set': {
+                    'conversation_history': conversation_history,
+                    'conversation_text': conversation_text,
+                    'updated_at': updated_at
+                }}
             )
+
+            # Send the assistant's response to the client
             emit('response_chunk', {'chunk': assistant_response})
         else:
             emit('error', {'message': "No valid response from the API"})
@@ -269,7 +372,7 @@ def handle_message(data):
 @app.route('/get_config')
 def get_config():
     """Returns configuration data like MAX_TOKENS."""
-    return jsonify({"max_tokens": MAX_TOKENS})
+    return jsonify({"max_tokens": MAX_TOKENS}), 200
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
@@ -284,7 +387,7 @@ def upload_file():
         return jsonify({"message": "Unsupported file type."}), 400
 
     if not file_size_under_limit(file):
-        return jsonify({"message": "File too large. Max size is 10MB"}), 400
+        return jsonify({"message": "File too large. Max size is 5MB"}), 400
 
     try:
         file_content = file.read().decode('utf-8')
@@ -294,65 +397,7 @@ def upload_file():
     except Exception as e:
         logging.error(f"Error uploading or analyzing file: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
-# app.py or a separate script
-
-validation_schema = {
-    '$jsonSchema': {
-        'bsonType': 'object',
-        'required': ['conversation_id', 'user_id', 'conversation_history', 'created_at'],
-        'properties': {
-            'conversation_id': {
-                'bsonType': 'string',
-                'description': 'must be a string and is required'
-            },
-            'user_id': {
-                'bsonType': 'string',
-                'description': 'must be a string and is required'
-            },
-            'conversation_history': {
-                'bsonType': 'array',
-                'items': {
-                    'bsonType': 'object',
-                    'required': ['role', 'content'],
-                    'properties': {
-                        'role': {
-                            'enum': ['user', 'assistant'],
-                            'description': 'can only be "user" or "assistant"'
-                        },
-                        'content': {
-                            'bsonType': 'string',
-                            'description': 'must be a string and is required'
-                        }
-                    }
-                }
-            },
-            'conversation_text': {
-                'bsonType': 'string',
-                'description': 'must be a string'
-            },
-            'created_at': {
-                'bsonType': 'date',
-                'description': 'must be a date and is required'
-            },
-            'updated_at': {
-                'bsonType': 'date',
-                'description': 'must be a date'
-            }
-        }
-    }
-}
-    
-try:
-    db.create_collection('conversations', validator=validation_schema)
-    print("Collection 'conversations' created with schema validation.")
-except Exception as e:
-    if 'already exists' in str(e):
-        # Update the existing collection with the validation schema
-        db.command('collMod', 'conversations', validator=validation_schema)
-        print("Collection 'conversations' already exists. Schema validation applied.")
-    else:
-        print(f"An error occurred: {e}")
 
 if __name__ == '__main__':
-    # Launch the Flask app with SocketIO enabled
-    socketio.run(app, debug=True, port=5000)  # Adjust port as necessary
+    # Launch the Flask app with SocketIO enabled using Eventlet
+    socketio.run(app, debug=True, port=5000)
