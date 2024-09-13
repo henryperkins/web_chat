@@ -1,52 +1,66 @@
 # app.py
 
-from datetime import datetime
-import json
 from flask import Flask, session, jsonify, request, render_template
-from werkzeug.utils import secure_filename
 from flask_session import Session
 from flask_socketio import SocketIO, emit
+from werkzeug.utils import secure_filename
 import os
-import logging
-import requests
-from bson import json_util
+import json
+from datetime import datetime, timedelta
 import uuid
+import logging
 from pymongo import MongoClient, ASCENDING, DESCENDING, TEXT
+from bson import json_util
 from dotenv import load_dotenv
 from utils import (
+    count_tokens,
+    manage_token_limits,
     allowed_file,
     file_size_under_limit,
     handle_file_chunks,
-    generate_conversation_text
+    analyze_chunk_with_llama,
+    generate_conversation_text  # New function to generate conversation_text
 )
 
 # Load environment variables
 load_dotenv()
 
 # Flask app initialization
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
+app = Flask(__name__, static_url_path='', static_folder='static', template_folder='templates')
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Securely obtain configuration variables
+AZURE_API_URL = os.getenv('AZURE_API_URL')
+API_KEY = os.getenv('API_KEY')
+SECRET_KEY = os.getenv('SECRET_KEY', 'default_secret_key')
+MONGODB_URI = os.getenv('MONGODB_URI')
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 32000))
+REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 1000))
+
+HEADERS = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {API_KEY}"
+}
+
+# Initialize MongoDB client
+mongo_client = MongoClient(MONGODB_URI)
+db = mongo_client['chatbot_db']
+conversations_collection = db['conversations']
+
+# Set secret key for session
+app.secret_key = SECRET_KEY
+
+# Initialize session
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 Session(app)
 
-# Initialize MongoDB client
-MONGODB_URI = os.getenv('MONGODB_URI')
-mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client['chatbot_db']
-conversations_collection = db['conversations']
-AZURE_API_URL = os.getenv('AZURE_API_URL')
-API_KEY = os.getenv('API_KEY')
-MAX_TOKENS = int(os.getenv('MAX_TOKENS', 128000))
-REPLY_TOKENS = int(os.getenv('REPLY_TOKENS', 800))
-CHUNK_SIZE_TOKENS = int(os.getenv('CHUNK_SIZE_TOKENS', 1000))
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
-# Initialize SocketIO with Eventlet
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
-
-# Validation schema (ensure this matches your actual schema)
+# Validation schema for MongoDB (optional)
 validation_schema = {
     '$jsonSchema': {
         'bsonType': 'object',
@@ -72,6 +86,7 @@ validation_schema = {
     }
 }
 
+# Apply schema validation and create indexes
 def initialize_db():
     try:
         # Apply validation schema
@@ -105,7 +120,7 @@ def initialize_db():
     )
     logging.info("Index created on 'created_at' field.")
 
-# Initialize the database
+# Call initialize_db() when the application starts
 initialize_db()
 
 @app.route('/')
@@ -208,7 +223,6 @@ def save_history():
     file_name = f'{timestamp}_{conversation_id}_conversation_history.json'
 
     try:
-        os.makedirs('saved_conversations', exist_ok=True)  # Ensure directory exists
         with open(os.path.join('saved_conversations', file_name), 'w') as outfile:
             json.dump(conversation, outfile, default=json_util.default)
         logging.info(f"Conversation saved successfully: {file_name}")
@@ -233,6 +247,7 @@ def search_conversations():
             '$text': {'$search': query}
         },
         {
+            '_id': 0,
             'conversation_id': 1,
             'created_at': 1,
             'updated_at': 1,
@@ -372,7 +387,7 @@ def handle_message(data):
 @app.route('/get_config')
 def get_config():
     """Returns configuration data like MAX_TOKENS."""
-    return jsonify({"max_tokens": MAX_TOKENS}), 200
+    return jsonify({"max_tokens": MAX_TOKENS})
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
@@ -399,5 +414,5 @@ def upload_file():
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    # Launch the Flask app with SocketIO enabled using Eventlet
-    socketio.run(app, debug=True, port=5000)
+    # Launch the Flask app with SocketIO enabled
+    socketio.run(app, debug=True, port=5000)  # Adjust port as necessary

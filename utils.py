@@ -33,6 +33,30 @@ encoding = tiktoken.get_encoding("cl100k_base")
 def count_tokens(text):
     """Count tokens in the text using the tokenizer."""
     return len(encoding.encode(text))
+def generate_conversation_text(conversation_history):
+    """
+    Generates a text summary of the conversation by concatenating user and assistant messages.
+    
+    Args:
+        conversation_history (list): A list of dictionaries representing the conversation history.
+                                     Each dictionary contains 'role' and 'content' keys.
+    
+    Returns:
+        str: A concatenated string representation of the conversation.
+    """
+    conversation_text = ""
+    
+    for message in conversation_history:
+        role = message.get('role', 'user')
+        content = message.get('content', '')
+        
+        if role == 'user':
+            conversation_text += f"User: {content}\n"
+        elif role == 'assistant':
+            conversation_text += f"Assistant: {content}\n"
+    
+    return conversation_text.strip()  # Remove any trailing newlines
+
 
 def summarize_messages(messages, max_summary_tokens=500):
     """Summarizes a list of messages into a shorter text."""
